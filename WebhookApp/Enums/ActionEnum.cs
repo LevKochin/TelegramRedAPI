@@ -3,9 +3,10 @@
 public enum ActionEnum
 {
     None = 0,
-    StartPost = 1,
-    ProcessingPost = 10,
-    EndPost = 11,
+    StartPublication = 1,
+    ProcessingPublication = 10,
+    RejectPublication = 11,
+    EndPublication = 12,
     StartForward = 2,
     StartShare = 20,
     ProcessingShare = 21,
@@ -15,6 +16,8 @@ public enum ActionEnum
     StartDelete = 3,
     StartDeleteLast = 30,
     StartDeleteByLink = 31,
+    EndDeleteLast = 32,
+    EndDeleteByLink = 33,
     StartAddUser = 4,
     ProcessingAddUser = 40,
     EndAddUser = 41,

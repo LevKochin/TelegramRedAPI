@@ -17,7 +17,8 @@
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development",
         "token": "7737631394:AAGVz9IfBmiYLNTLGKxy3K8AFzEp3V744Xo",
-        "admin_id": "961342898"
+        "admin_id": "961342898",
+        "chatIds": "@test_reposter2,@test_reposter1"
       }
     },
     "https": {

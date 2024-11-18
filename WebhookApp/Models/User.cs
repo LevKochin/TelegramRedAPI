@@ -5,32 +5,40 @@ using Enums;
 public class User(long userId)
 {
     public long UserId { get; } = userId;
+    
+    /*
+     TODO: Определить - будут ли сохраняться все сообщения для их
+     последующего удаления по очереди, где каждое удаление - последнее
+     */
+    public List<int> LastMessagesIds { get; set; } = [];
 
     public ICollection<Interaction> Interactions { get; } =
     [
-        new Interaction(0, InteractionEnum.None)
+        new(0, InteractionEnum.None)
     ];
 
     public IEnumerable<Action> Actions { get; } =
     [
-        new Action(ActionEnum.StartPost),
-        new Action(ActionEnum.ProcessingPost),
-        new Action(ActionEnum.EndPost),
-        new Action(ActionEnum.StartForward),
-        new Action(ActionEnum.StartShare),
-        new Action(ActionEnum.StartForwardByLink),
-        new Action(ActionEnum.ProcessingShare),
-        new Action(ActionEnum.ProcessingForwardByLink),
-        new Action(ActionEnum.EndForward),
-        new Action(ActionEnum.StartDelete),
-        new Action(ActionEnum.StartDeleteLast),
-        new Action(ActionEnum.StartDeleteByLink),
-        new Action(ActionEnum.StartAddUser),
-        new Action(ActionEnum.ProcessingAddUser),
-        new Action(ActionEnum.EndAddUser),
-        new Action(ActionEnum.StartDeleteUser),
-        new Action(ActionEnum.GetUserSettings),
-        new Action(ActionEnum.BackToMain),
-        new Action(ActionEnum.Help),
+        new(ActionEnum.StartPublication),
+        new(ActionEnum.ProcessingPublication),
+        new(ActionEnum.EndPublication),
+        new(ActionEnum.StartForward),
+        new(ActionEnum.StartShare),
+        new(ActionEnum.StartForwardByLink),
+        new(ActionEnum.ProcessingShare),
+        new(ActionEnum.ProcessingForwardByLink),
+        new(ActionEnum.EndForward),
+        new(ActionEnum.StartDelete),
+        new(ActionEnum.StartDeleteLast),
+        new(ActionEnum.StartDeleteByLink),
+        new(ActionEnum.EndDeleteLast),
+        new(ActionEnum.EndDeleteByLink),
+        new(ActionEnum.StartAddUser),
+        new(ActionEnum.ProcessingAddUser),
+        new(ActionEnum.EndAddUser),
+        new(ActionEnum.StartDeleteUser),
+        new(ActionEnum.GetUserSettings),
+        new(ActionEnum.BackToMain),
+        new(ActionEnum.Help),
     ];
 }
