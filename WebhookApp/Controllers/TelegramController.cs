@@ -81,6 +81,13 @@ public class TelegramController(
                 await actionService.ExecuteActionFromType(action, chatId, userId, message, messageId);
                 return;
             }
+            
+            bool hasBotForward = messageProp.TryGetProperty("forward_from_message_id", out JsonElement forwardFromMessageProp);
+            if (hasBotForward)
+            {
+                await actionService.ExecuteActionFromType(ActionEnum.ProcessingShare, chatId, userId, message, messageId);
+                return;
+            }
 
             bool hasBotCommand = messageProp.TryGetProperty("bot_command", out JsonElement botCommandProp);
             switch (hasBotCommand)

@@ -10,7 +10,7 @@ public class User(long userId)
      TODO: Определить - будут ли сохраняться все сообщения для их
      последующего удаления по очереди, где каждое удаление - последнее
      */
-    public List<int> LastMessagesIds { get; set; } = [];
+    public List<UserMessage> LastMessages { get; set; } = [];
 
     public ICollection<Interaction> Interactions { get; } =
     [
@@ -26,18 +26,20 @@ public class User(long userId)
         new(ActionEnum.StartShare),
         new(ActionEnum.StartForwardByLink),
         new(ActionEnum.ProcessingShare),
+        new(ActionEnum.RejectSharing),
         new(ActionEnum.ProcessingForwardByLink),
-        new(ActionEnum.EndForward),
+        new(ActionEnum.EndSharing),
         new(ActionEnum.StartDelete),
         new(ActionEnum.StartDeleteLast),
         new(ActionEnum.StartDeleteByLink),
+        new(ActionEnum.ProcessingDeleteByLink),
         new(ActionEnum.EndDeleteLast),
-        new(ActionEnum.EndDeleteByLink),
+        new(ActionEnum.GetUserSettings),
         new(ActionEnum.StartAddUser),
         new(ActionEnum.ProcessingAddUser),
         new(ActionEnum.EndAddUser),
         new(ActionEnum.StartDeleteUser),
-        new(ActionEnum.GetUserSettings),
+        new(ActionEnum.ProcessingDeleteUser),
         new(ActionEnum.BackToMain),
         new(ActionEnum.Help),
     ];

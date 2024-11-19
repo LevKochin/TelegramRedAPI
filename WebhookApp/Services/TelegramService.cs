@@ -105,7 +105,7 @@ public class TelegramService(IHttpClientFactory clientFactory)
 
     public async Task<int> StartPublication(long chatId, int messageId)
     {
-        await ChangeText(ConvertToJson(new
+        await ChangeMessage(ConvertToJson(new
         {
             message_id = messageId,
             chat_id = chatId,
@@ -148,41 +148,142 @@ public class TelegramService(IHttpClientFactory clientFactory)
         }));
 
 
-    public async Task PublicateMessages(ICollection<Interaction> interactions, long chatId)
+    public async Task<int> ShareNextStep(long chatId, string text) =>
+        await SendMessage(ConvertToJson(new
+        {
+            chat_id = chatId,
+            text,
+            reply_markup = new
+            {
+                inline_keyboard = new[]
+                {
+                    new[]
+                    {
+                        new { text = "👈 В главное меню", callback_data = "rejectSharing" },
+                        new { text = "📨 Опубликовать", callback_data = "endForward" }
+                    }
+                }
+            }
+        }));
+
+
+    public async IAsyncEnumerable<UserMessage> PostMessages(ICollection<Interaction> interactions, long chatId,
+        int groupId)
     {
         foreach (Interaction interaction in interactions.Where(i => i.InteractionType == InteractionEnum.Post))
         {
             foreach (string toChatId in _chatIds)
             {
-                await CopyMessage(ConvertToJson(new
+                yield return new UserMessage
                 {
-                    chat_id = toChatId,
-                    from_chat_id = chatId,
-                    message_id = interaction.MessageId,
-                }));
+                    Id = await CopyMessage(ConvertToJson(new
+                    {
+                        chat_id = toChatId,
+                        from_chat_id = chatId,
+                        message_id = interaction.MessageId,
+                    })),
+                    ChatId = toChatId,
+                    GroupId = groupId
+                };
             }
         }
     }
 
-    public async Task StartForward(long chatId) =>
-        await SendMessage(ConvertToJson(new
+
+    public async IAsyncEnumerable<UserMessage> ForwardMessages(ICollection<Interaction> interactions, long chatId,
+        int groupId)
+    {
+        foreach (Interaction interaction in interactions.Where(i => i.InteractionType == InteractionEnum.Post))
+        {
+            foreach (string toChatId in _chatIds)
+            {
+                yield return new UserMessage
+                {
+                    Id = await ForwardMessage(ConvertToJson(new
+                    {
+                        chat_id = toChatId,
+                        from_chat_id = chatId,
+                        message_id = interaction.MessageId,
+                    })),
+                    ChatId = toChatId,
+                    GroupId = groupId
+                };
+            }
+        }
+    }
+
+
+    public async Task<int> ForwardIntoChat(object fromChatId, int messageId, long chatId) =>
+        await ForwardMessage(ConvertToJson(new
         {
             chat_id = chatId,
-            text = "Вы начали пересылку сообщений по каналам. Ожидание завершения процесса.",
+            from_chat_id = fromChatId,
+            message_id = messageId,
         }));
 
-    public async Task<int> StartAddUser(long chatId, int messageId)
-    {
-        await ChangeText(ConvertToJson(new
+    public async Task<int> StartForward(long chatId, int messageId) =>
+        await ChangeMessage(ConvertToJson(new
         {
-            message_id = messageId,
             chat_id = chatId,
-            text = "Вы начали процесс добавления нового пользователя: пожалуйста введите id"
+            message_id = messageId,
+            text = "Выберите способ рассылки по каналам: ",
+            reply_markup = new
+            {
+                inline_keyboard = new[]
+                {
+                    new[]
+                    {
+                        new { text = "📨 Share", callback_data = "startShare" },
+                        new { text = "📤 Ссылка", callback_data = "startForwardByLink" }
+                    }
+                }
+            }
         }));
-        return await EditButtons(ConvertToJson(new
+
+
+    public async Task<int> StartForwardByLink(long chatId, int messageId) =>
+        await ChangeMessage(ConvertToJson(new
+        {
+            chat_id = chatId,
+            message_id = messageId,
+            text = "Начат процесс публикации сообщения по ссылке. Вставьте актуальную ссылку или в главное меню: ",
+            reply_markup = new
+            {
+                inline_keyboard = new[]
+                {
+                    new[]
+                    {
+                        new { text = "👈 В главное меню", callback_data = "backToMain" }
+                    }
+                }
+            }
+        }));
+
+    public async Task<int> StartShare(long chatId, int messageId) =>
+        await ChangeMessage(ConvertToJson(new
+        {
+            chat_id = chatId,
+            message_id = messageId,
+            text =
+                "Начата рассылка, пожалуйста выберете сообщение в любом канале и нажми стрелку Share и передайте чат-боту: ",
+            reply_markup = new
+            {
+                inline_keyboard = new[]
+                {
+                    new[]
+                    {
+                        new { text = "👈 В главное меню", callback_data = "backToMain" }
+                    }
+                }
+            }
+        }));
+
+    public async Task<int> StartAddUser(long chatId, int messageId) =>
+        await ChangeMessage(ConvertToJson(new
         {
             message_id = messageId,
             chat_id = chatId,
+            text = "Вы начали процесс добавления нового пользователя: пожалуйста введите id",
             reply_markup = new
             {
                 inline_keyboard = new[]
@@ -194,7 +295,6 @@ public class TelegramService(IHttpClientFactory clientFactory)
                 }
             }
         }));
-    }
 
     public async Task<int> BrowsWrongUserId(long chatId) =>
         await SendMessage(ConvertToJson(new
@@ -213,18 +313,12 @@ public class TelegramService(IHttpClientFactory clientFactory)
             }
         }));
 
-    public async Task<int> BrowsUserIdExists(long chatId, int messageId)
-    {
-        await ChangeText(ConvertToJson(new
+    public async Task<int> BrowsUserIdExists(long chatId, int messageId) =>
+        await ChangeMessage(ConvertToJson(new
         {
             chat_id = chatId,
             message_id = messageId,
             text = "Такой пользователь уже существует. Попробуйте ещё раз или завершите действие.",
-        }));
-        return await EditButtons(ConvertToJson(new
-        {
-            chat_id = chatId,
-            message_id = messageId,
             reply_markup = new
             {
                 inline_keyboard = new[]
@@ -236,21 +330,14 @@ public class TelegramService(IHttpClientFactory clientFactory)
                 }
             }
         }));
-    }
 
 
-    public async Task<int> BrowsSuccessAddingUser(long chatId, string userId, int messageId)
-    {
-        await ChangeText(ConvertToJson(new
+    public async Task<int> BrowsSuccessAddingUser(long chatId, string userId, int messageId) =>
+        await ChangeMessage(ConvertToJson(new
         {
             text = "Пользователь: " + userId +
                    " успешно добавлен, продолжайте добавление пользователей или завершите процесс",
             message_id = messageId,
-            chat_id = chatId
-        }));
-        return await EditButtons(ConvertToJson(new
-        {
-            message_id = messageId,
             chat_id = chatId,
             reply_markup = new
             {
@@ -263,7 +350,6 @@ public class TelegramService(IHttpClientFactory clientFactory)
                 }
             }
         }));
-    }
 
     public async Task<int> GetSettingsCommand(long chatId, long messageId) =>
         await EditButtons(ConvertToJson(new
@@ -278,7 +364,7 @@ public class TelegramService(IHttpClientFactory clientFactory)
         Interaction lastInteraction = interactions.Last();
         if (lastInteraction.InteractionType is InteractionEnum.InlineKeyboard)
         {
-            await ChangeText(ConvertToJson(new
+            await ChangeMessage(ConvertToJson(new
             {
                 message_id = lastInteraction.MessageId,
                 chat_id = chatId,
@@ -331,18 +417,50 @@ public class TelegramService(IHttpClientFactory clientFactory)
         }));
 
 
-    public async Task<int> StartDeleteLastPublication(long chatId, int messageId)
-    {
-        await ChangeText(ConvertToJson(new
+    public async Task<int> BrowsIncorrectUrl(long chatId, int messageId) =>
+        await ChangeMessage(ConvertToJson(new
         {
             message_id = messageId,
             chat_id = chatId,
-            text = "Подтвердите удаление последней публикации"
+            text = "Формат введённой ссылке не верный, пожалуйста, повторите попытку",
+            reply_markup = new
+            {
+                inline_keyboard = new[]
+                {
+                    new[]
+                    {
+                        new { text = "👈 В главное меню", callback_data = "backToMain" },
+                    }
+                }
+            }
         }));
-        return await EditButtons(ConvertToJson(new
+
+
+    public async Task<int> BrowsFailedRemove(long chatId, int messageId, string text) =>
+        await ChangeMessage(ConvertToJson(new
         {
             message_id = messageId,
             chat_id = chatId,
+            text,
+            reply_markup = new
+            {
+                inline_keyboard = new[]
+                {
+                    new[]
+                    {
+                        new { text = "👈 В главное меню", callback_data = "backToMain" },
+                    }
+                }
+            }
+        }));
+
+
+    public async Task<int> StartDeleteLastPublication(long chatId, int messageId) =>
+        await ChangeMessage(ConvertToJson(new
+        {
+            message_id = messageId,
+            chat_id = chatId,
+            text = "Подтвердите удаление последней публикации",
             reply_markup = new
             {
                 inline_keyboard = new[]
@@ -355,41 +473,30 @@ public class TelegramService(IHttpClientFactory clientFactory)
                 }
             }
         }));
-    }
 
-    public async Task<int> StartDeletePublicationByLink(long chatId, int messageId)
-    {
-        await ChangeText(ConvertToJson(new
+    public async Task<int> StartDeletePublicationByLink(long chatId, int messageId) =>
+        await ChangeMessage(ConvertToJson(new
         {
             message_id = messageId,
             chat_id = chatId,
-            text = ""
-        }));
-        return await EditButtons(ConvertToJson(new
-        {
-            message_id = messageId,
-            chat_id = chatId,
+            text = "Вы начали процесс удаления постов с помощью ссылки. Пожалуйста вставьте ссылку на пост",
             reply_markup = new
             {
                 inline_keyboard = new[]
                 {
                     new[]
                     {
-                        new { text = "👈 В главное меню", callback_data = "backToMain" }
+                        new { text = "👈 В главное меню", callback_data = "backToMain" },
                     }
                 }
             }
         }));
-    }
-    
-    public async Task DeleteLastMessage(List<int> lastMessagesIds)
+
+    public async Task DeleteLastMessage(IEnumerable<UserMessage> messages)
     {
-        foreach (int lastMessageId in lastMessagesIds)
+        foreach (UserMessage message in messages)
         {
-            foreach (string chatId in _chatIds)
-            {
-                await RemoveMessage(chatId, lastMessageId);
-            }
+            await RemoveMessage(message.ChatId, message.Id);
         }
     }
 
@@ -408,10 +515,11 @@ public class TelegramService(IHttpClientFactory clientFactory)
             message_id = messageId
         }), Encoding.UTF8, MediaTypeNames.Application.Json);
         HttpResponseMessage response = await _httpClient.PostAsync(_apiSignatureUrl + "/deleteMessage", content);
-        response.EnsureSuccessStatusCode();
+        string responseContent = await response.Content.ReadAsStringAsync();
+        Console.WriteLine(responseContent);
     }
 
-    private async Task RemoveMessage(string chatId, int messageId)
+    public async Task<JsonElement> RemoveMessage(object chatId, int messageId)
     {
         StringContent content = new(ConvertToJson(new
         {
@@ -419,7 +527,9 @@ public class TelegramService(IHttpClientFactory clientFactory)
             message_id = messageId
         }), Encoding.UTF8, MediaTypeNames.Application.Json);
         HttpResponseMessage response = await _httpClient.PostAsync(_apiSignatureUrl + "/deleteMessage", content);
-        if(response.StatusCode is not HttpStatusCode.OK) Console.WriteLine(await response.Content.ReadAsStringAsync());
+        string responseContent = await response.Content.ReadAsStringAsync();
+        JsonElement jsonContent = JsonDocument.Parse(responseContent).RootElement;
+        return jsonContent;
     }
 
     private async Task<int> ChangeLastInlineToAdminMainMenu(long chatId, long messageId) =>
@@ -441,6 +551,25 @@ public class TelegramService(IHttpClientFactory clientFactory)
             reply_markup = new
             {
                 inline_keyboard = _userInlineKeyboard
+            }
+        }));
+    
+    
+    public async Task<int> SendPreviewMessage(long chatId) =>
+        await SendMessage(ConvertToJson(new
+        {
+            chat_id = chatId,
+            text = "Предпросмотр сообщения, которое вы хотите отправить, выберите опцию:",
+            reply_markup = new
+            {
+                inline_keyboard = new []
+                {
+                    new[]
+                    {
+                        new { text = "👈 В главное меню", callback_data = "rejectForwardByLink" },
+                        new { text = "📨 Опубликовать", callback_data = "endForwardByLink" }
+                    }
+                }
             }
         }));
 
@@ -506,7 +635,7 @@ public class TelegramService(IHttpClientFactory clientFactory)
         response.EnsureSuccessStatusCode();
     }
 
-    private async Task CopyMessage(string message)
+    private async Task<int> CopyMessage(string message)
     {
         StringContent content = new(message, Encoding.UTF8, MediaTypeNames.Application.Json);
         HttpResponseMessage response = await _httpClient.PostAsync(_apiSignatureUrl + "/copyMessage", content);
@@ -514,9 +643,27 @@ public class TelegramService(IHttpClientFactory clientFactory)
         {
             Console.WriteLine(await response.Content.ReadAsStringAsync());
         }
+
+        string responseContent = await response.Content.ReadAsStringAsync();
+        JsonElement responseAsJson = JsonDocument.Parse(responseContent).RootElement;
+        return GetIdFromMessage(responseAsJson);
     }
 
-    private async Task<int> ChangeText(string message)
+    private async Task<int> ForwardMessage(string message)
+    {
+        StringContent content = new(message, Encoding.UTF8, MediaTypeNames.Application.Json);
+        HttpResponseMessage response = await _httpClient.PostAsync(_apiSignatureUrl + "/forwardMessage", content);
+        if (response.StatusCode != HttpStatusCode.OK)
+        {
+            Console.WriteLine(await response.Content.ReadAsStringAsync());
+        }
+
+        string responseContent = await response.Content.ReadAsStringAsync();
+        JsonElement responseAsJson = JsonDocument.Parse(responseContent).RootElement;
+        return GetIdFromMessage(responseAsJson);
+    }
+
+    private async Task<int> ChangeMessage(string message)
     {
         StringContent content = new(message, Encoding.UTF8, MediaTypeNames.Application.Json);
         HttpResponseMessage response = await _httpClient.PostAsync(_apiSignatureUrl + "/editMessageText", content);

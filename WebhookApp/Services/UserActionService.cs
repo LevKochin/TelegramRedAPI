@@ -1,7 +1,10 @@
-﻿namespace WebhookApp.Services;
+﻿using System.Text.Json;
+
+namespace WebhookApp.Services;
 
 using Models;
 using Enums;
+using System.Linq;
 
 public class UserActionService(ICollection<User> users, TelegramService telegramService)
 {
@@ -55,7 +58,7 @@ public class UserActionService(ICollection<User> users, TelegramService telegram
             {
                 int messageId = await telegramService.StartPublication(chatId, lastInteraction!.MessageId);
                 SetInteraction(lastInteraction, InteractionEnum.InlineKeyboard, messageId);
-                ActivateAction(ActionEnum.ProcessingPublication, userId);
+                ActivateAction(actor!, ActionEnum.ProcessingPublication);
                 return;
             }
             case ActionEnum.ProcessingPublication:
@@ -67,54 +70,117 @@ public class UserActionService(ICollection<User> users, TelegramService telegram
                 int publicationCount = actor!.Interactions.Count(i => i.InteractionType == InteractionEnum.Post) + 1;
                 string text = "Вы подготовили: " + publicationCount + " сообщение. Выберите дальнейшее действие.";
                 int nextStepMessageId = await telegramService.PublicationNextStep(chatId, text);
-                actor.LastMessagesIds.Add(currentMessageId);
                 AddInteraction(actor!, InteractionEnum.Post, currentMessageId);
                 AddInteraction(actor!, InteractionEnum.InlineKeyboard, nextStepMessageId);
-                break;
+                return;
             }
             case ActionEnum.RejectPublication:
             {
                 int messageId = await telegramService.BrowsMainMenu(chatId, actor!.Interactions, IsActorAdmin(userId));
                 ClearInteractions(actor!);
-                DeactivateAction(ActionEnum.ProcessingPublication, userId);
+                DeactivateAction(actor!, ActionEnum.ProcessingPublication);
                 AddInteraction(actor!, InteractionEnum.Menu, messageId);
                 return;
             }
             case ActionEnum.EndPublication:
             {
-                await telegramService.PublicateMessages(actor!.Interactions, chatId);
+                int groupId = (actor!.LastMessages.LastOrDefault()?.GroupId ?? 0) + 1;
+                IAsyncEnumerable<UserMessage> messages =
+                    telegramService.PostMessages(actor!.Interactions, chatId, groupId);
+                await foreach (UserMessage publicationMessage in messages)
+                {
+                    actor.LastMessages.Add(publicationMessage);
+                }
+
                 int messageId = await telegramService.BrowsMainMenu(chatId, actor!.Interactions, IsActorAdmin(userId),
-                    "Процесс публикации ваших сообщений успешно завершён. Выбериете опцию:");
+                    "Процесс публикации ваших сообщений успешно завершён. Выберете опцию:");
                 ClearInteractions(actor!);
-                DeactivateAction(ActionEnum.ProcessingPublication, userId);
+                DeactivateAction(actor, ActionEnum.ProcessingPublication);
                 AddInteraction(actor!, InteractionEnum.Menu, messageId);
-                break;
+                return;
             }
             case ActionEnum.StartDelete:
             {
                 int messageId = await telegramService.BrowsRemoveMenu(chatId, lastInteraction!.MessageId);
                 SetInteraction(lastInteraction, InteractionEnum.InlineKeyboard, messageId);
-                break;
+                return;
             }
             case ActionEnum.StartDeleteLast:
             {
                 int messageId = await telegramService.StartDeleteLastPublication(chatId, lastInteraction!.MessageId);
                 SetInteraction(lastInteraction, InteractionEnum.InlineKeyboard, messageId);
-                break;
+                return;
             }
             case ActionEnum.EndDeleteLast:
             {
-                await telegramService.DeleteLastMessage(actor!.LastMessagesIds);
+                int groupId = actor!.LastMessages.Last().GroupId;
+                await telegramService.DeleteLastMessage(actor!.LastMessages.Where(m => m.GroupId == groupId));
+                actor.LastMessages = actor!.LastMessages.Where(m => m.GroupId != groupId).ToList();
                 int messageId = await telegramService.BrowsMainMenu(chatId, actor!.Interactions, IsActorAdmin(userId),
                     "Вы успешно удалили последнее сообщение с каналов. Выберите опцию");
                 SetInteraction(lastInteraction!, InteractionEnum.Menu, messageId);
-                break;
+                return;
             }
             case ActionEnum.StartDeleteByLink:
             {
                 int messageId = await telegramService.StartDeletePublicationByLink(chatId, lastInteraction!.MessageId);
                 SetInteraction(lastInteraction, InteractionEnum.InlineKeyboard, messageId);
+                ActivateAction(actor!, ActionEnum.ProcessingDeleteByLink);
                 break;
+            }
+            case ActionEnum.ProcessingDeleteByLink:
+            {
+                await RemoveCurrentUselessMessage(chatId, currentMessageId);
+                if (!message!.Contains("https://t.me/"))
+                {
+                    int firstIncorrectMessageId =
+                        await telegramService.BrowsIncorrectUrl(chatId, lastInteraction!.MessageId);
+                    if (firstIncorrectMessageId == 0)
+                    {
+                        return;
+                    }
+
+                    SetInteraction(lastInteraction, InteractionEnum.InlineKeyboard, firstIncorrectMessageId);
+                    return;
+                }
+
+                string[] urlParts = message.Replace("https://t.me/", "").Split('/');
+                if (urlParts.Length != 2)
+                {
+                    int secondIncorrectMessageId =
+                        await telegramService.BrowsIncorrectUrl(chatId, lastInteraction!.MessageId);
+                    if (secondIncorrectMessageId == 0)
+                    {
+                        return;
+                    }
+
+                    SetInteraction(lastInteraction, InteractionEnum.InlineKeyboard, secondIncorrectMessageId);
+                    return;
+                }
+
+                object chatIdObj = "@" + urlParts[0];
+                int deletionMessageId = Convert.ToInt32(urlParts[1]);
+                JsonElement result = await telegramService.RemoveMessage(chatIdObj, deletionMessageId);
+                result.TryGetProperty("ok", out JsonElement statusElement);
+                if (!statusElement.GetBoolean())
+                {
+                    JsonElement errorMessage = result.GetProperty("description");
+                    int secondIncorrectMessageId =
+                        await telegramService.BrowsFailedRemove(chatId, lastInteraction!.MessageId,
+                            "Не удалось удалить сообщение, ответ: " + errorMessage);
+                    SetInteraction(lastInteraction, InteractionEnum.InlineKeyboard, secondIncorrectMessageId);
+                    return;
+                }
+
+                actor!.LastMessages = actor.LastMessages
+                    .Where(m => !(m.Id == deletionMessageId && m.ChatId.Equals(chatIdObj)))
+                    .ToList();
+                int menuMessageId = await telegramService.BrowsMainMenu(chatId, actor!.Interactions,
+                    IsActorAdmin(userId),
+                    $"Сообщение из чата: {chatIdObj}, id = {deletionMessageId} было успешно удалено. Выберете опцию: ");
+                SetInteraction(lastInteraction!, InteractionEnum.Menu, menuMessageId);
+                DeactivateAction(actor, ActionEnum.ProcessingDeleteByLink);
+                return;
             }
             case ActionEnum.GetUserId:
             {
@@ -123,29 +189,132 @@ public class UserActionService(ICollection<User> users, TelegramService telegram
             }
             case ActionEnum.StartForward:
             {
-                ActivateAction(ActionEnum.ProcessingPublication, userId);
-                await telegramService.StartForward(chatId);
+                int messageId = await telegramService.StartForward(chatId, lastInteraction!.MessageId);
+                SetInteraction(lastInteraction, InteractionEnum.InlineKeyboard, messageId);
                 break;
             }
-            case ActionEnum.EndForward:
+            case ActionEnum.StartShare:
+            {
+                ActivateAction(actor!, ActionEnum.ProcessingShare);
+                int messageId = await telegramService.StartShare(chatId, lastInteraction!.MessageId);
+                SetInteraction(lastInteraction, InteractionEnum.InlineKeyboard, messageId);
+                return;
+            }
+            case ActionEnum.ProcessingShare:
+            {
+                Interaction lastKeyboardInteraction =
+                    actor!.Interactions.Last(i =>
+                        i.InteractionType is InteractionEnum.InlineKeyboard or InteractionEnum.Menu);
+                await telegramService.RemoveKeyboard(chatId, lastKeyboardInteraction.MessageId);
+                SetInteraction(lastKeyboardInteraction, InteractionEnum.Text, lastKeyboardInteraction.MessageId);
+                int forwardCount = actor!.Interactions.Count(i => i.InteractionType == InteractionEnum.Post) + 1;
+                string text = "Вы подготовили: " + forwardCount +
+                              " сообщение. Выберите дальнейшее действие или продолжите создавать коллекцию.";
+                int nextStepMessageId = await telegramService.ShareNextStep(chatId, text);
+                AddInteraction(actor!, InteractionEnum.Post, currentMessageId);
+                AddInteraction(actor!, InteractionEnum.InlineKeyboard, nextStepMessageId);
+                return;
+            }
+            case ActionEnum.RejectSharing:
+            {
+                int messageId = await telegramService.BrowsMainMenu(chatId, actor!.Interactions, IsActorAdmin(userId));
+                ClearInteractions(actor!);
+                DeactivateAction(actor!, ActionEnum.ProcessingShare);
+                AddInteraction(actor!, InteractionEnum.Menu, messageId);
+                return;
+            }
+            case ActionEnum.EndSharing:
+            {
+                int groupId = (actor!.LastMessages.LastOrDefault()?.GroupId ?? 0) + 1;
+                IAsyncEnumerable<UserMessage> messages =
+                    telegramService.ForwardMessages(actor!.Interactions, chatId, groupId);
+                await foreach (UserMessage publicationMessage in messages)
+                {
+                    actor.LastMessages.Add(publicationMessage);
+                }
+
+                int messageId = await telegramService.BrowsMainMenu(chatId, actor!.Interactions, IsActorAdmin(userId),
+                    "Процесс публикации ваших сообщений успешно завершён. Выберете опцию:");
+                ClearInteractions(actor!);
+                DeactivateAction(actor, ActionEnum.ProcessingPublication);
+                AddInteraction(actor!, InteractionEnum.Menu, messageId);
+                return;
+            }
+            case ActionEnum.StartForwardByLink:
+            {
+                ActivateAction(actor!, ActionEnum.ProcessingForwardByLink);
+                int messageId = await telegramService.StartForwardByLink(chatId, lastInteraction!.MessageId);
+                SetInteraction(lastInteraction, InteractionEnum.InlineKeyboard, messageId);
+                return;
+            }
+            case ActionEnum.ProcessingForwardByLink:
+            {
+                await RemoveCurrentUselessMessage(chatId, currentMessageId);
+                Interaction keyboardLastInteraction =
+                    actor!.Interactions.Last(i => i.InteractionType == InteractionEnum.InlineKeyboard);
+                await telegramService.RemoveKeyboard(chatId, keyboardLastInteraction.MessageId);
+                SetInteraction(keyboardLastInteraction, InteractionEnum.Text, keyboardLastInteraction.MessageId);
+                if (!message!.Contains("https://t.me/"))
+                {
+                    int firstIncorrectMessageId =
+                        await telegramService.BrowsIncorrectUrl(chatId, lastInteraction!.MessageId);
+                    if (firstIncorrectMessageId == 0)
+                    {
+                        return;
+                    }
+
+                    SetInteraction(keyboardLastInteraction, InteractionEnum.InlineKeyboard, firstIncorrectMessageId);
+                    return;
+                }
+
+                string[] urlParts = message.Replace("https://t.me/", "").Split('/');
+                if (urlParts.Length != 2)
+                {
+                    int secondIncorrectMessageId =
+                        await telegramService.BrowsIncorrectUrl(chatId, lastInteraction!.MessageId);
+                    if (secondIncorrectMessageId == 0)
+                    {
+                        return;
+                    }
+
+                    SetInteraction(keyboardLastInteraction, InteractionEnum.InlineKeyboard, secondIncorrectMessageId);
+                    return;
+                }
+
+                object fromChatId = "@" + urlParts[0];
+                int messageId = Convert.ToInt32(urlParts[1]);
+                int forwardedMessageId = await telegramService.ForwardIntoChat(fromChatId, messageId, currentMessageId);
+                AddInteraction(actor!, InteractionEnum.Post, forwardedMessageId);
+                int previewMessageId = await telegramService.SendPreviewMessage(chatId);
+                AddInteraction(actor!, InteractionEnum.InlineKeyboard, previewMessageId);
+                return;
+            }
+            case ActionEnum.EndForwardByLink:
             {
                 break;
             }
             case ActionEnum.GetUserSettings:
             {
-                await telegramService.GetSettingsCommand(chatId, lastInteraction!.MessageId);
-                break;
+                int messageId = await telegramService.GetSettingsCommand(chatId, lastInteraction!.MessageId);
+                SetInteraction(lastInteraction!, InteractionEnum.InlineKeyboard, messageId);
+                return;
             }
             case ActionEnum.StartAddUser:
             {
                 int messageId = await telegramService.StartAddUser(chatId, lastInteraction!.MessageId);
+                if (messageId == 0)
+                {
+                    return;
+                }
+
                 SetInteraction(lastInteraction, InteractionEnum.InlineKeyboard, messageId);
-                ActivateAction(ActionEnum.ProcessingAddUser, userId);
-                break;
+                ActivateAction(actor!, ActionEnum.ProcessingAddUser);
+                DeactivateAction(actor!, action);
+                return;
             }
             case ActionEnum.ProcessingAddUser:
             {
-                int messageId = actor!.Interactions.Last().MessageId;
+                int messageId = lastInteraction!.MessageId;
                 await RemoveCurrentUselessMessage(chatId, currentMessageId!);
                 if (long.TryParse(message, out long newUserId))
                 {
@@ -153,13 +322,13 @@ public class UserActionService(ICollection<User> users, TelegramService telegram
                     if (result == 0)
                     {
                         await telegramService.BrowsUserIdExists(chatId, messageId);
-                        break;
+                        return;
                     }
 
                     if (!ActorExists(newUserId)) InitActor(newUserId);
 
                     await telegramService.BrowsSuccessAddingUser(chatId, message, messageId);
-                    break;
+                    return;
                 }
 
                 await telegramService.BrowsWrongUserId(chatId);
@@ -169,8 +338,8 @@ public class UserActionService(ICollection<User> users, TelegramService telegram
             {
                 int messageId = await telegramService.BrowsMainMenu(chatId, actor!.Interactions, IsActorAdmin(userId));
                 SetInteraction(lastInteraction!, InteractionEnum.Menu, messageId);
-                DeactivateAction(ActionEnum.ProcessingAddUser, userId);
-                break;
+                DeactivateAction(actor, ActionEnum.ProcessingAddUser);
+                return;
             }
             case ActionEnum.BackToMain:
             {
@@ -183,17 +352,6 @@ public class UserActionService(ICollection<User> users, TelegramService telegram
                 return;
             }
         }
-
-        if (action is (ActionEnum.ProcessingPublication or
-            ActionEnum.ProcessingShare or
-            ActionEnum.ProcessingAddUser or
-            ActionEnum.ProcessingForwardByLink or
-            ActionEnum.ProcessingDeleteUser))
-        {
-            return;
-        }
-
-        DeactivateAction(action, userId);
     }
 
     public async Task RemoveCurrentUselessMessage(long chatId, int messageId) =>
@@ -209,10 +367,10 @@ public class UserActionService(ICollection<User> users, TelegramService telegram
         actor.Interactions.Add(new Interaction(messageId, interactionType));
 
     private void ClearInteractions(User actor) => actor.Interactions.Clear();
-    private void ActivateAction(ActionEnum action, long userId) => EnableAction(GetCurrentActor(userId)!, action);
-    private void DeactivateAction(ActionEnum action, long userId) => DisableAction(GetCurrentActor(userId)!, action);
-    private void EnableAction(User actor, ActionEnum action) => actor.Actions.First(a => a.Type == action).Act = true;
-    private void DisableAction(User actor, ActionEnum action) => actor.Actions.First(a => a.Type == action).Act = false;
+    private void ActivateAction(User actor, ActionEnum action) => actor.Actions.First(a => a.Type == action).Act = true;
+
+    private void DeactivateAction(User actor, ActionEnum action) =>
+        actor.Actions.First(a => a.Type == action).Act = false;
 
     private void DisableAllActiveActions(User actor) =>
         actor.Actions.Where(action => action.Act).ToList().ForEach(action => action.Act = false);
