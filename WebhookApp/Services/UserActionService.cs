@@ -1,4 +1,5 @@
 ﻿using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace WebhookApp.Services;
 
@@ -69,9 +70,21 @@ public class UserActionService(ICollection<User> users, TelegramService telegram
                 SetInteraction(lastKeyboardInteraction, InteractionEnum.Text, lastKeyboardInteraction.MessageId);
                 int publicationCount = actor!.Interactions.Count(i => i.InteractionType == InteractionEnum.Post) + 1;
                 string text = "Вы подготовили: " + publicationCount + " сообщение. Выберите дальнейшее действие.";
-                int nextStepMessageId = await telegramService.PublicationNextStep(chatId, text);
+                bool isHtmlFormatting = ContainsHtmlFormatting(message!);
+                bool isMarkdownFormatting = ContainsMarkdownFormatting(message!);
+                if (isHtmlFormatting || isMarkdownFormatting)
+                {
+                    string parseMode = isHtmlFormatting ? "HTML" : "MarkdownV2";
+                    int previewNextMessageId = await telegramService.SendPreviewPublicationMessage(chatId, currentMessageId, parseMode);
+                    AddInteraction(actor!, InteractionEnum.Post, previewNextMessageId);
+                    int nextStep1MessageId = await telegramService.PublicationNextStep(chatId, text);
+                    AddInteraction(actor!, InteractionEnum.InlineKeyboard, nextStep1MessageId);
+                    return;
+                }
+                
+                int nextStep2MessageId = await telegramService.PublicationNextStep(chatId, text);
+                AddInteraction(actor!, InteractionEnum.InlineKeyboard, nextStep2MessageId);
                 AddInteraction(actor!, InteractionEnum.Post, currentMessageId);
-                AddInteraction(actor!, InteractionEnum.InlineKeyboard, nextStepMessageId);
                 return;
             }
             case ActionEnum.RejectPublication:
@@ -166,7 +179,7 @@ public class UserActionService(ICollection<User> users, TelegramService telegram
                 {
                     JsonElement errorMessage = result.GetProperty("description");
                     int secondIncorrectMessageId =
-                        await telegramService.BrowsFailedRemove(chatId, lastInteraction!.MessageId,
+                        await telegramService.BrowsError(chatId, lastInteraction!.MessageId,
                             "Не удалось удалить сообщение, ответ: " + errorMessage);
                     SetInteraction(lastInteraction, InteractionEnum.InlineKeyboard, secondIncorrectMessageId);
                     return;
@@ -283,11 +296,28 @@ public class UserActionService(ICollection<User> users, TelegramService telegram
 
                 object fromChatId = "@" + urlParts[0];
                 int messageId = Convert.ToInt32(urlParts[1]);
-                int forwardedMessageId = await telegramService.ForwardIntoChat(fromChatId, messageId, currentMessageId);
+                int forwardedMessageId = await telegramService.ForwardIntoChat(fromChatId, messageId, chatId);
+                if (forwardedMessageId == 0)
+                {
+                    int errorMessageId =
+                        await telegramService.BrowsError(chatId, lastInteraction!.MessageId,
+                            "Возникла ошибка при попытке создания репоста, попробуйте ещё раз или пройдите в главное меню");
+                    SetInteraction(keyboardLastInteraction, InteractionEnum.InlineKeyboard, errorMessageId);
+                    return;
+                }
+
                 AddInteraction(actor!, InteractionEnum.Post, forwardedMessageId);
-                int previewMessageId = await telegramService.SendPreviewMessage(chatId);
+                int previewMessageId = await telegramService.SendPreviewForwardMessage(chatId);
                 AddInteraction(actor!, InteractionEnum.InlineKeyboard, previewMessageId);
                 return;
+            }
+            case ActionEnum.RejectForwardByLink:
+            {
+                int messageId = await telegramService.BrowsMainMenu(chatId, actor!.Interactions, IsActorAdmin(userId));
+                ClearInteractions(actor!);
+                DeactivateAction(actor!, ActionEnum.ProcessingForwardByLink);
+                AddInteraction(actor!, InteractionEnum.Menu, messageId);
+                break;
             }
             case ActionEnum.EndForwardByLink:
             {
@@ -409,5 +439,17 @@ public class UserActionService(ICollection<User> users, TelegramService telegram
         }
 
         return await telegramService.InitializedAdminChatBot(chatId);
+    }
+    
+    private static bool ContainsHtmlFormatting(string message)
+    {
+        string htmlPattern = @"<\/?(b|strong|i|em|u|ins|s|strike|del|span|tg-spoiler|a|code|pre|blockquote|tg-emoji).*?>";
+        return Regex.IsMatch(message, htmlPattern, RegexOptions.IgnoreCase);
+    }
+
+    private static bool ContainsMarkdownFormatting(string message)
+    {
+        string markdownPattern = @"(\*\*(.*?)\*\*)|(\*(.*?)\*)|(__.*?__)|(~.*?~)|(\|\|.*?\|\|)|(\[.*?\]\(.*?\))|(`.*?`)";
+        return Regex.IsMatch(message, markdownPattern);
     }
 }

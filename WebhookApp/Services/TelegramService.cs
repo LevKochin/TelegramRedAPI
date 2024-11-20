@@ -377,14 +377,7 @@ public class TelegramService(IHttpClientFactory clientFactory)
 
             return await ChangeLastInlineToUserMainMenu(chatId, lastInteraction.MessageId);
         }
-
-        // int[] messageIds = interactions.Where(m => m.InteractionType is InteractionEnum.Menu)
-        //                                .Select(m => m.MessageId).ToArray();
-        // await RemoveMessages(ConvertToJson(new
-        // {
-        //     chat_id = chatId,
-        //     message_ids = messageIds
-        // }));
+        
         if (isAdmin)
         {
             return await BrowsAdminMainMenu(chatId);
@@ -435,8 +428,7 @@ public class TelegramService(IHttpClientFactory clientFactory)
             }
         }));
 
-
-    public async Task<int> BrowsFailedRemove(long chatId, int messageId, string text) =>
+    public async Task<int> BrowsError(long chatId, int messageId, string text) =>
         await ChangeMessage(ConvertToJson(new
         {
             message_id = messageId,
@@ -555,7 +547,7 @@ public class TelegramService(IHttpClientFactory clientFactory)
         }));
     
     
-    public async Task<int> SendPreviewMessage(long chatId) =>
+    public async Task<int> SendPreviewForwardMessage(long chatId) =>
         await SendMessage(ConvertToJson(new
         {
             chat_id = chatId,
@@ -571,6 +563,16 @@ public class TelegramService(IHttpClientFactory clientFactory)
                     }
                 }
             }
+        }));
+    
+    
+    public async Task<int> SendPreviewPublicationMessage(long chatId, int messageId, string parseMode) =>
+        await CopyMessage(ConvertToJson(new
+        {
+            chat_id = chatId,
+            from_chat_id = chatId,
+            message_id = messageId,
+            parse_mode = parseMode,
         }));
 
     private async Task<int> BrowsUserMainMenu(long chatId) =>
@@ -656,6 +658,7 @@ public class TelegramService(IHttpClientFactory clientFactory)
         if (response.StatusCode != HttpStatusCode.OK)
         {
             Console.WriteLine(await response.Content.ReadAsStringAsync());
+            return 0;
         }
 
         string responseContent = await response.Content.ReadAsStringAsync();
@@ -689,4 +692,5 @@ public class TelegramService(IHttpClientFactory clientFactory)
 
         return 0;
     }
+
 }
