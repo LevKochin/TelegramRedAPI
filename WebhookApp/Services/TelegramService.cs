@@ -7,7 +7,7 @@ using System.Net;
 using System.Net.Mime;
 using System.Text.Json;
 
-public class TelegramService(IHttpClientFactory clientFactory)
+public class TelegramService(IHttpClientFactory clientFactory, IHostEnvironment env)
 {
     private readonly object[][] _adminInlineKeyboard =
     [
@@ -49,6 +49,43 @@ public class TelegramService(IHttpClientFactory clientFactory)
         "https://api.telegram.org/bot" + Environment.GetEnvironmentVariable("token");
 
     private readonly List<string>? _chatIds = Environment.GetEnvironmentVariable("chatIds")?.Split(",").ToList();
+
+    public async Task SetWebhook()
+    {
+        string? url = Environment.GetEnvironmentVariable("webhook_url");
+        if (string.IsNullOrEmpty(url))
+        {
+            Console.WriteLine("Переменная среды для установки ссылки не установлена");
+            return;
+        }
+
+        HttpResponseMessage response = await _httpClient.GetAsync(_apiSignatureUrl + "/setWebhook?url=" + url);
+        response.EnsureSuccessStatusCode();
+        Console.WriteLine(await response.Content.ReadAsStringAsync());
+    }
+
+    public async Task<string> UpdateWebhook(string? url)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(url))
+            {
+                return JsonSerializer.Serialize(new ResponseMessage(-1, "Отсутствует url"));
+            }
+
+            HttpResponseMessage response =
+                await _httpClient.GetAsync(_apiSignatureUrl + "/setWebhook?url=" + url + "/update");
+            response.EnsureSuccessStatusCode();
+            return await response.Content.ReadAsStringAsync();
+        }
+        catch (Exception ex)
+        {
+            return env.IsProduction()
+                ? JsonSerializer.Serialize(new ResponseMessage(-1,
+                    "Возникла системная ошибка, пожалуйста, обратитесь к администратору"))
+                : JsonSerializer.Serialize(new ResponseMessage(-1, ex.Message));
+        }
+    }
 
     public async Task<int> InitializedUserChatBot(long chatId)
     {
@@ -160,7 +197,7 @@ public class TelegramService(IHttpClientFactory clientFactory)
                     new[]
                     {
                         new { text = "👈 В главное меню", callback_data = "rejectSharing" },
-                        new { text = "📨 Опубликовать", callback_data = "endForward" }
+                        new { text = "📨 Опубликовать", callback_data = "endSharing" }
                     }
                 }
             }
@@ -296,10 +333,11 @@ public class TelegramService(IHttpClientFactory clientFactory)
             }
         }));
 
-    public async Task<int> BrowsWrongUserId(long chatId) =>
-        await SendMessage(ConvertToJson(new
+    public async Task<int> BrowsWrongUserId(long chatId, int messageId) =>
+        await ChangeMessage(ConvertToJson(new
         {
             chat_id = chatId,
+            message_id = messageId,
             text = "Неверный формат, пожалуйста, введите корректное значение или завершить действие ",
             reply_markup = new
             {
@@ -356,6 +394,17 @@ public class TelegramService(IHttpClientFactory clientFactory)
         {
             message_id = messageId,
             chat_id = chatId,
+            reply_markup = new
+            {
+                inline_keyboard = new[]
+                {
+                    new[]
+                    {
+                        new { text = "👈 В главное меню", callback_data = "backToMain" },
+                        new { text = "👤 Добавить нового пользователя", callback_data = "startAddUser" }
+                    }
+                }
+            }
         }));
 
     public async Task<int> BrowsMainMenu(long chatId, ICollection<Interaction> interactions, bool isAdmin,
@@ -377,7 +426,7 @@ public class TelegramService(IHttpClientFactory clientFactory)
 
             return await ChangeLastInlineToUserMainMenu(chatId, lastInteraction.MessageId);
         }
-        
+
         if (isAdmin)
         {
             return await BrowsAdminMainMenu(chatId);
@@ -403,7 +452,7 @@ public class TelegramService(IHttpClientFactory clientFactory)
                     new[]
                     {
                         new { text = "📛 Удаление по ссылке", callback_data = "startDeleteByLink" },
-                        new { text = "📤 Удаление последних сообщений", callback_data = "startDeleteLast" }
+                        // new { text = "📤 Удаление последних сообщений", callback_data = "startDeleteLast" }
                     }
                 }
             }
@@ -545,8 +594,8 @@ public class TelegramService(IHttpClientFactory clientFactory)
                 inline_keyboard = _userInlineKeyboard
             }
         }));
-    
-    
+
+
     public async Task<int> SendPreviewForwardMessage(long chatId) =>
         await SendMessage(ConvertToJson(new
         {
@@ -554,7 +603,7 @@ public class TelegramService(IHttpClientFactory clientFactory)
             text = "Предпросмотр сообщения, которое вы хотите отправить, выберите опцию:",
             reply_markup = new
             {
-                inline_keyboard = new []
+                inline_keyboard = new[]
                 {
                     new[]
                     {
@@ -564,8 +613,8 @@ public class TelegramService(IHttpClientFactory clientFactory)
                 }
             }
         }));
-    
-    
+
+
     public async Task<int> SendPreviewPublicationMessage(long chatId, int messageId, string parseMode) =>
         await CopyMessage(ConvertToJson(new
         {
@@ -692,5 +741,4 @@ public class TelegramService(IHttpClientFactory clientFactory)
 
         return 0;
     }
-
 }

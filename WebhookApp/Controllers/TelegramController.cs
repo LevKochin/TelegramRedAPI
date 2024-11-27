@@ -1,6 +1,7 @@
 namespace WebhookApp.Controllers;
 
 using Enums;
+using Models;
 using Services;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
@@ -12,22 +13,33 @@ public class TelegramController(
     UserActionService actionService) : ControllerBase
 {
     [HttpGet]
-    [Route("/")]
+    [Route("/check")]
     public IActionResult CheckApp() => Ok("Telegram App v01");
 
     [HttpPost]
+    [Route("/set_webhook")]
+    public async Task<IActionResult> SetWebhook(
+        [FromServices] TelegramService telegramService,
+        [FromQuery] string? url) => Ok(await telegramService.UpdateWebhook(url));
+
+    [HttpPost]
     [Route("/update")]
-    public async Task GetUpdate([FromBody] JsonElement update, CancellationToken cancellationToken)
+    public async Task<IActionResult> GetUpdate([FromBody] JsonElement update, CancellationToken cancellationToken)
     {
+        string referer = HttpContext.Request.Headers["Referer"].ToString();
+        if (referer.Contains("swagger", StringComparison.OrdinalIgnoreCase))
+        {
+            return BadRequest(new ResponseMessage(-5, "Вы не можете обращаться к API через swagger"));
+        }
+
         try
         {
             bool hasMessage = update.TryGetProperty("message", out JsonElement messageProp);
             bool hasCallback = update.TryGetProperty("callback_query", out JsonElement callbackProp);
             if (!hasMessage && !hasCallback)
             {
-                Console.WriteLine();
-                Console.WriteLine("Сообщение не найдено: содержимое ответа от чата: {0}", update);
-                return;
+                return BadRequest(new ResponseMessage(-4,
+                    $"Сообщение не найдено: содержимое ответа от чата: {update}"));
             }
 
             JsonElement fromMessageProp = default;
@@ -38,9 +50,8 @@ public class TelegramController(
                                    callbackProp.TryGetProperty("from", out fromCallbackProp);
             if (!hasFromMessage && !hasFromCallback)
             {
-                Console.WriteLine();
-                Console.WriteLine("Сообщение не содержит отправителя: содержимое ответа от чата: {0}", update);
-                return;
+                return BadRequest(new ResponseMessage(-4,
+                    $"Сообщение не содержит отправителя: содержимое ответа от чата:  {update}"));
             }
 
             JsonElement chatMessageProp = default;
@@ -51,9 +62,8 @@ public class TelegramController(
                                    callbackProp.GetProperty("message").TryGetProperty("chat", out chatCallbackProp);
             if (!hasMessageChat && !hasCallbackChat)
             {
-                Console.WriteLine();
-                Console.WriteLine("Сообщение не содержит чат отправителя: содержимое ответа от чата: {0}", update);
-                return;
+                return BadRequest(new ResponseMessage(-4,
+                    $"Сообщение не содержит чат отправителя: содержимое ответа от чата: {update}"));
             }
 
             long userId = hasFromCallback
@@ -65,7 +75,7 @@ public class TelegramController(
             string message = hasCallbackChat
                 ? callbackProp.GetProperty("message").GetProperty("text").ToString().Trim()
                 : messageProp.GetProperty("text").ToString().Trim();
-            int messageId = hasCallbackChat 
+            int messageId = hasCallbackChat
                 ? callbackProp.GetProperty("message").GetProperty("message_id").GetInt32()
                 : messageProp.GetProperty("message_id").GetInt32();
             ActionEnum action = await actionService.DefineActiveActionType(userId, chatId);
@@ -73,37 +83,41 @@ public class TelegramController(
                 Enum.TryParse(callbackProp.GetProperty("data").ToString(), true, out action))
             {
                 await actionService.ExecuteActionFromType(action, chatId, userId, message, messageId);
-                return;
+                return Ok();
             }
 
             if (action is not ActionEnum.None)
             {
                 await actionService.ExecuteActionFromType(action, chatId, userId, message, messageId);
-                return;
+                return Ok();
             }
-            
-            bool hasBotForward = messageProp.TryGetProperty("forward_from_message_id", out JsonElement forwardFromMessageProp);
+
+            bool hasBotForward =
+                messageProp.TryGetProperty("forward_from_message_id", out JsonElement forwardFromMessageProp);
             if (hasBotForward)
             {
-                await actionService.ExecuteActionFromType(ActionEnum.ProcessingShare, chatId, userId, message, messageId);
-                return;
+                await actionService.ExecuteActionFromType(ActionEnum.ProcessingShare, chatId, userId, message,
+                    messageId);
+                return Ok();
             }
 
             bool hasBotCommand = messageProp.TryGetProperty("bot_command", out JsonElement botCommandProp);
             switch (hasBotCommand)
             {
                 case true:
-                    await actionService.ExecuteActionFromType(ActionEnum.BackToMain, chatId, userId, message, messageId);
-                    return;
+                    await actionService.ExecuteActionFromType(ActionEnum.BackToMain, chatId, userId, message,
+                        messageId);
+                    return Ok();
                 case false:
                     await actionService.RemoveCurrentUselessMessage(chatId, messageId);
-                    break;
+                    return Ok();
             }
         }
         catch (Exception e)
         {
             Console.WriteLine(e.Message);
             Console.WriteLine(e.StackTrace);
+            return BadRequest();
         }
     }
 }

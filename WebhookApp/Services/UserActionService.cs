@@ -1,11 +1,10 @@
-﻿using System.Text.Json;
-using System.Text.RegularExpressions;
+﻿namespace WebhookApp.Services;
 
-namespace WebhookApp.Services;
-
-using Models;
 using Enums;
+using Models;
 using System.Linq;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 
 public class UserActionService(ICollection<User> users, TelegramService telegramService)
 {
@@ -83,8 +82,8 @@ public class UserActionService(ICollection<User> users, TelegramService telegram
                 }
                 
                 int nextStep2MessageId = await telegramService.PublicationNextStep(chatId, text);
-                AddInteraction(actor!, InteractionEnum.InlineKeyboard, nextStep2MessageId);
                 AddInteraction(actor!, InteractionEnum.Post, currentMessageId);
+                AddInteraction(actor!, InteractionEnum.InlineKeyboard, nextStep2MessageId);
                 return;
             }
             case ActionEnum.RejectPublication:
@@ -321,7 +320,20 @@ public class UserActionService(ICollection<User> users, TelegramService telegram
             }
             case ActionEnum.EndForwardByLink:
             {
-                break;
+                int groupId = (actor!.LastMessages.LastOrDefault()?.GroupId ?? 0) + 1;
+                IAsyncEnumerable<UserMessage> messages =
+                    telegramService.ForwardMessages(actor!.Interactions, chatId, groupId);
+                await foreach (UserMessage publicationMessage in messages)
+                {
+                    actor.LastMessages.Add(publicationMessage);
+                }
+
+                int messageId = await telegramService.BrowsMainMenu(chatId, actor!.Interactions, IsActorAdmin(userId),
+                    "Процесс публикации ваших сообщений успешно завершён. Выберете опцию:");
+                ClearInteractions(actor!);
+                DeactivateAction(actor, ActionEnum.ProcessingPublication);
+                AddInteraction(actor!, InteractionEnum.Menu, messageId);
+                return;
             }
             case ActionEnum.GetUserSettings:
             {
@@ -361,7 +373,7 @@ public class UserActionService(ICollection<User> users, TelegramService telegram
                     return;
                 }
 
-                await telegramService.BrowsWrongUserId(chatId);
+                await telegramService.BrowsWrongUserId(chatId, messageId);
                 return;
             }
             case ActionEnum.EndAddUser:

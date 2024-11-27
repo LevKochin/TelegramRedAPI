@@ -16,9 +16,10 @@
       "applicationUrl": "http://localhost:5113",
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development",
-        "token": "7737631394:AAGVz9IfBmiYLNTLGKxy3K8AFzEp3V744Xo",
+        "token": "7737631394:AAFzG5o93NK0kAEu5smXmaFs4KLUNlki8Bc",
         "admin_id": "961342898",
-        "chatIds": "@test_reposter2,@test_reposter1"
+        "chatIds": "@test_reposter2,@test_reposter1",
+        "webhook_url": "https://aa61-92-46-48-37.ngrok-free.app/update"
       }
     },
     "https": {
