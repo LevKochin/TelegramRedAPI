@@ -2,6 +2,14 @@
 Microsoft Visual Studio Solution File, Format Version 12.00
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "WebhookApp", "WebhookApp\WebhookApp.csproj", "{4C66379C-2F7E-46F4-918D-2FBF977298B7}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Red Yurt", "Red Yurt", "{B5B4C065-F9AD-42F5-A9FA-7478EB067049}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PageGenerator", "PageGenerator\PageGenerator.csproj", "{23EA3D03-2B56-4117-8AD1-96F29E789239}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "dharma1937", "dharma1937", "{8B85CC7A-BA40-47C8-9CC8-06C43A33AEE9}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Data.Origin", "Data.Origin\Data.Origin.csproj", "{717CA01F-4975-4807-9856-B96D6F55B3E9}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -12,5 +20,18 @@ Global
 		{4C66379C-2F7E-46F4-918D-2FBF977298B7}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{4C66379C-2F7E-46F4-918D-2FBF977298B7}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{4C66379C-2F7E-46F4-918D-2FBF977298B7}.Release|Any CPU.Build.0 = Release|Any CPU
+		{23EA3D03-2B56-4117-8AD1-96F29E789239}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{23EA3D03-2B56-4117-8AD1-96F29E789239}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{23EA3D03-2B56-4117-8AD1-96F29E789239}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{23EA3D03-2B56-4117-8AD1-96F29E789239}.Release|Any CPU.Build.0 = Release|Any CPU
+		{717CA01F-4975-4807-9856-B96D6F55B3E9}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{717CA01F-4975-4807-9856-B96D6F55B3E9}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{717CA01F-4975-4807-9856-B96D6F55B3E9}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{717CA01F-4975-4807-9856-B96D6F55B3E9}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{23EA3D03-2B56-4117-8AD1-96F29E789239} = {B5B4C065-F9AD-42F5-A9FA-7478EB067049}
+		{4C66379C-2F7E-46F4-918D-2FBF977298B7} = {8B85CC7A-BA40-47C8-9CC8-06C43A33AEE9}
+		{717CA01F-4975-4807-9856-B96D6F55B3E9} = {B5B4C065-F9AD-42F5-A9FA-7478EB067049}
 	EndGlobalSection
 EndGlobal

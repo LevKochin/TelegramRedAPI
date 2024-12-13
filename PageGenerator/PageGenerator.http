@@ -1,0 +1,6 @@
+@PageGenerator_HostAddress = http://localhost:5199
+
+GET {{PageGenerator_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
